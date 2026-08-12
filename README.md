@@ -43,9 +43,12 @@ Track exact real-world satellite positions updated every 2 seconds, click any ve
 
 ![Sidebar telemetry panel](docs/images/sidebar-telemetry.png)
 
+
 ![Orbit trails from a distance](docs/images/orbit-trails-wide.png)
 
+
 ![Satellite occlusion behind Earth](docs/images/depth-occlusion.png)
+
 
 ---
 
