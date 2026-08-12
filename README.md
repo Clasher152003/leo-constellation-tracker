@@ -5,7 +5,6 @@
 Track exact real-world satellite positions updated every 2 seconds, click any vehicle to fly the camera directly to it, and compare live telemetry — altitude, velocity, and inclination — across an entire constellation from a single dashboard.
 
 ![Dashboard overview](docs/images/dashboard-overview.png)
-> **Screenshot to take:** A full-window capture of the dashboard at rest — globe centered, 3–4 satellites visible with their glowing orbit trails, and the sidebar HUD showing telemetry cards. This is the first thing visitors see, so pick a moment where at least one satellite is clearly mid-globe (not hidden behind the Earth) and the lighting/day-night terminator is visible for visual interest.
 
 ---
 
@@ -20,7 +19,6 @@ Track exact real-world satellite positions updated every 2 seconds, click any ve
 - **Depth-Correct Rendering** — Satellites and their orbit paths are properly occluded by the Earth when passing behind it — no "X-ray vision" through the globe.
 
 ![Click-to-focus demo](docs/images/click-to-focus.gif)
-> **GIF to take:** Screen-record clicking a satellite card in the sidebar (e.g., Hubble) and let it play through the full camera flyTo animation until it settles close to the satellite. 5–8 seconds is plenty. This is the single most "wow" moment of the project, so it deserves a GIF, not a static image.
 
 ---
 
@@ -44,13 +42,10 @@ Track exact real-world satellite positions updated every 2 seconds, click any ve
 ## 📸 More Screenshots
 
 ![Sidebar telemetry panel](docs/images/sidebar-telemetry.png)
-> **Screenshot to take:** A close-up crop of just the sidebar HUD showing 3–4 satellite cards with their color swatches, NORAD IDs, lat/lon, altitude, velocity, and inclination values clearly readable. Zoom your browser in slightly first so text is crisp.
 
 ![Orbit trails from a distance](docs/images/orbit-trails-wide.png)
-> **Screenshot to take:** Zoom the camera out until the whole Earth is visible with multiple glowing orbit trails arcing around it. This shows off the "constellation" feel of the project — try to catch a frame where at least 2–3 orbit paths are visually distinct from each other in color.
 
 ![Satellite occlusion behind Earth](docs/images/depth-occlusion.png)
-> **Screenshot to take:** Rotate the globe so that one tracked satellite is on the far side of the Earth (i.e., it should NOT be visible) while another remains visible on the near side. This screenshot proves the depth-testing fix is working — annotate it with an arrow or circle if you want to make the "hidden" satellite's expected position obvious.
 
 ---
 
@@ -109,7 +104,6 @@ Replace the placeholder with your own token from [ion.cesium.com/tokens](https:/
 const CESIUM_ION_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
 ```
 
-> ⚠️ **Do not commit your real token to a public repository.** Treat it like a secret — if you accidentally push it, regenerate it immediately from the Cesium Ion dashboard.
 
 ### 6. Open the dashboard
 
@@ -123,8 +117,7 @@ python -m http.server 5500
 
 You should see the globe load, the camera fly out to frame the Earth, and satellite markers with glowing orbit trails begin animating in real time. 🎉
 
-![Startup sequence](docs/images/startup-sequence.gif)
-> **GIF to take:** Record the full page load from a blank browser tab: hitting refresh, the black starfield appearing briefly, the Earth texture popping in, and the initial camera flyTo settling into the framed view. This reassures new users that a brief black screen on load is expected behavior, not a bug.
+
 
 ---
 
