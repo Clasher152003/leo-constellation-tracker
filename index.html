@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Constellation Dashboard</title>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.121/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+<style>
+  html, body, #cesiumContainer {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+
+  #hud {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    background: rgba(10, 14, 20, 0.8);
+    border: 1px solid rgba(0, 200, 255, 0.4);
+    border-radius: 6px;
+    padding: 14px 18px;
+    color: #b7f5ff;
+    min-width: 300px;
+    max-height: 80vh;
+    overflow-y: auto;
+    backdrop-filter: blur(4px);
+  }
+
+  #hud h1 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: #4be3ff;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(0, 200, 255, 0.3);
+    padding-bottom: 8px;
+  }
+
+  .sat-card {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-left-width: 4px;
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .sat-card:hover {
+    background: rgba(255,255,255,0.06);
+  }
+
+  .sat-card.selected {
+    background: rgba(75, 227, 255, 0.12);
+  }
+
+  .sat-card .sat-name {
+    font-size: 12px;
+    font-weight: bold;
+    color: #e8feff;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sat-card .swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .sat-card .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    margin: 2px 0;
+  }
+
+  .sat-card .label { color: #6fa8b8; }
+  .sat-card .value { color: #d4f9ff; }
+
+  #status {
+    position: absolute;
+    bottom: 10px;
+    left: 16px;
+    z-index: 10;
+    font-size: 11px;
+    color: #4be3ff88;
+    font-family: 'Consolas', 'Courier New', monospace;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .dot.live { background: #33ff88; box-shadow: 0 0 6px #33ff88; }
+  .dot.error { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
+
+  #resetViewBtn {
+    position: absolute;
+    bottom: 10px;
+    right: 16px;
+    z-index: 10;
+    background: rgba(10, 14, 20, 0.8);
+    border: 1px solid rgba(0, 200, 255, 0.4);
+    color: #b7f5ff;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #resetViewBtn:hover {
+    background: rgba(75, 227, 255, 0.15);
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <h1>Constellation Dashboard</h1>
+  <div id="satList"></div>
+</div>
+
+<div id="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+<button id="resetViewBtn">Reset View</button>
+
+<div id="cesiumContainer"></div>
+
+<script>
+// -----------------------------------------------------------------------
+// Cesium Ion token
+// -----------------------------------------------------------------------
+const CESIUM_ION_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3YzNlOGU4OS1lMmYxLTRlMzQtYTZiOC05YTQ5NWI0NjkyMjQiLCJpZCI6NDY2NDAwLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODY0NTAxNzl9.KVmkMo3a0Dfi6CVY86jwlgANVHWaLSbOGxiCIlmZW-Q";
+
+Cesium.Ion.defaultAccessToken = CESIUM_ION_TOKEN;
+
+const API_URL = "http://localhost:8000/api/constellation";
+const POLL_INTERVAL_MS = 2000;
+const ORBIT_TRAIL_POINTS = 90;
+
+const EARTH_RADIUS_M = 6378137.0;
+const FOCUS_DISTANCE_M = 1500000; // distance from satellite when focused
+
+let viewer;
+let hasFlownToConstellation = false;
+
+// norad_id -> { entity, pathEntity, trailPositions, color, lastPosition }
+const satelliteObjects = {};
+
+let selectedNoradId = null;
+let cameraLockedToSelection = false; // true while we're mid/at a focused flyTo
+
+async function initViewer() {
+  let baseImageryProvider;
+  try {
+    baseImageryProvider = await Cesium.IonImageryProvider.fromAssetId(2);
+  } catch (err) {
+    console.warn("Ion imagery unavailable, falling back to offline imagery:", err);
+    baseImageryProvider = new Cesium.TileMapServiceImageryProvider({
+      url: Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII"),
+    });
+  }
+
+  viewer = new Cesium.Viewer("cesiumContainer", {
+    animation: false,
+    timeline: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    fullscreenButton: false,
+    infoBox: false,
+    selectionIndicator: false,
+    shouldAnimate: true,
+    baseLayer: new Cesium.ImageryLayer(baseImageryProvider),
+    terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+  });
+
+  viewer.scene.globe.show = true;
+  viewer.scene.skyAtmosphere.show = true;
+  viewer.scene.globe.enableLighting = true;
+
+  // Locked camera: translate/tilt/look disabled. Zoom + rotate stay on.
+  // This lock applies at all times, including after a click-to-focus
+  // flyTo -- the camera can still be zoomed/rotated around whatever
+  // point it's currently centered on, it just can't be panned off-axis.
+  const controller = viewer.scene.screenSpaceCameraController;
+  controller.enableTranslate = false;
+  controller.enableTilt = false;
+  controller.enableLook = false;
+
+  const imageryLayers = viewer.scene.imageryLayers;
+  if (imageryLayers && imageryLayers.length > 0) {
+    const baseLayer = imageryLayers.get(0);
+    if (baseLayer) {
+      baseLayer.brightness = 1.0;
+      baseLayer.contrast = 1.0;
+      baseLayer.gamma = 1.0;
+    }
+  }
+
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(0, 0, EARTH_RADIUS_M * 5),
+  });
+}
+
+function setStatus(ok, text) {
+  const dot = document.getElementById("statusDot");
+  const label = document.getElementById("statusText");
+  dot.className = "dot " + (ok ? "live" : "error");
+  label.textContent = text;
+}
+
+function ensureSatelliteObject(sat) {
+  if (satelliteObjects[sat.norad_id]) return satelliteObjects[sat.norad_id];
+
+  const color = Cesium.Color.fromCssColorString(sat.color);
+
+  const entity = viewer.entities.add({
+    id: `sat-${sat.norad_id}`,
+    name: sat.name,
+    position: Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, sat.altitude_km * 1000),
+    point: {
+      pixelSize: 10,
+      color: color,
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 1.5,
+    },
+    label: {
+      text: sat.name,
+      font: "11px Consolas, monospace",
+      fillColor: color,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(12, 0),
+      showBackground: false,
+    },
+  });
+
+  const trailPositions = [];
+  viewer.entities.add({
+    id: `path-${sat.norad_id}`,
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => trailPositions, false),
+      width: 2,
+      material: new Cesium.PolylineGlowMaterialProperty({
+        glowPower: 0.25,
+        taperPower: 0.5,
+        color: color,
+      }),
+    },
+  });
+
+  const obj = { entity, trailPositions, color: sat.color, lastPosition: null };
+  satelliteObjects[sat.norad_id] = obj;
+  return obj;
+}
+
+function updateSatellite(sat) {
+  const obj = ensureSatelliteObject(sat);
+  const altitudeMeters = Math.max(sat.altitude_km * 1000, 0);
+  const position = Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, altitudeMeters);
+
+  obj.entity.position = position;
+  obj.lastPosition = position;
+
+  obj.trailPositions.push(position);
+  if (obj.trailPositions.length > ORBIT_TRAIL_POINTS) {
+    obj.trailPositions.shift();
+  }
+}
+
+// -----------------------------------------------------------------------
+// Click-to-focus
+// -----------------------------------------------------------------------
+
+function focusOnSatellite(norad_id) {
+  const obj = satelliteObjects[norad_id];
+  if (!obj || !obj.lastPosition) return;
+
+  selectedNoradId = norad_id;
+  cameraLockedToSelection = true;
+
+  viewer.camera.flyTo({
+    destination: obj.lastPosition,
+    duration: 1.8,
+    complete: () => {
+      // Back the camera off slightly so we're not exactly AT the point
+      // (a flyTo destination exactly on the entity position can clip
+      // through it). Offset outward along the position vector from
+      // Earth's center, keeping the satellite centered in view.
+      const surfaceNormal = Cesium.Cartesian3.normalize(obj.lastPosition, new Cesium.Cartesian3());
+      const backOff = Cesium.Cartesian3.multiplyByScalar(surfaceNormal, FOCUS_DISTANCE_M, new Cesium.Cartesian3());
+      const finalDestination = Cesium.Cartesian3.add(obj.lastPosition, backOff, new Cesium.Cartesian3());
+
+      viewer.camera.flyTo({
+        destination: finalDestination,
+        orientation: {
+          direction: Cesium.Cartesian3.negate(surfaceNormal, new Cesium.Cartesian3()),
+          up: Cesium.Cartesian3.UNIT_Z,
+        },
+        duration: 0.8,
+      });
+    },
+  });
+}
+
+function resetView() {
+  selectedNoradId = null;
+  cameraLockedToSelection = false;
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(0, 0, EARTH_RADIUS_M * 3.5),
+    duration: 1.8,
+  });
+}
+
+document.getElementById("resetViewBtn").addEventListener("click", resetView);
+
+// -----------------------------------------------------------------------
+// HUD
+// -----------------------------------------------------------------------
+
+function renderHud(satellites) {
+  const listEl = document.getElementById("satList");
+  listEl.innerHTML = "";
+
+  satellites.forEach((sat) => {
+    const card = document.createElement("div");
+    card.className = "sat-card" + (sat.norad_id === selectedNoradId ? " selected" : "");
+    card.onclick = () => {
+      focusOnSatellite(sat.norad_id);
+      renderHud(satellites); // re-render immediately to show highlight
+    };
+
+    card.innerHTML = `
+      <div class="sat-name">
+        <span class="swatch" style="background:${sat.color}"></span>
+        ${sat.name}
+      </div>
+      <div class="row"><span class="label">NORAD</span><span class="value">${sat.norad_id}</span></div>
+      <div class="row"><span class="label">Lat / Lon</span><span class="value">${sat.latitude.toFixed(2)}°, ${sat.longitude.toFixed(2)}°</span></div>
+      <div class="row"><span class="label">Altitude</span><span class="value">${sat.altitude_km.toFixed(1)} km</span></div>
+      <div class="row"><span class="label">Velocity</span><span class="value">${sat.velocity_km_s.toFixed(3)} km/s</span></div>
+      <div class="row"><span class="label">Inclination</span><span class="value">${sat.inclination_deg.toFixed(2)}°</span></div>
+      <div class="row"><span class="label">TLE Source</span><span class="value">${sat.tle_source}</span></div>
+    `;
+
+    listEl.appendChild(card);
+  });
+
+  if (satellites.length === 0) {
+    listEl.innerHTML = `<div style="font-size:12px; color:#ff8888;">No satellite data available. Backend may be unreachable or CelesTrak may be down with no cache/fallback yet.</div>`;
+  }
+}
+
+// -----------------------------------------------------------------------
+// Polling
+// -----------------------------------------------------------------------
+
+async function pollConstellation() {
+  try {
+    const resp = await fetch(API_URL);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    const satellites = data.satellites;
+
+    satellites.forEach(updateSatellite);
+    renderHud(satellites);
+
+    let statusText = `Live — tracking ${satellites.length} vehicles`;
+    if (data.skipped && data.skipped.length > 0) {
+      statusText += ` (${data.skipped.length} unavailable: ${data.skipped.join(", ")})`;
+    }
+    setStatus(true, statusText);
+
+    // Initial framing flyTo only, exactly once, and only if we haven't
+    // already been sent to a focused satellite view by a user click in
+    // the meantime.
+    if (!hasFlownToConstellation) {
+      hasFlownToConstellation = true;
+      if (!cameraLockedToSelection) {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(0, 0, EARTH_RADIUS_M * 3.5),
+          duration: 2.5,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch constellation data:", err);
+    setStatus(false, "Connection error — retrying...");
+  }
+}
+
+(async function main() {
+  await initViewer();
+  pollConstellation();
+  setInterval(pollConstellation, POLL_INTERVAL_MS);
+})();
+</script>
+
+</body>
+</html>
